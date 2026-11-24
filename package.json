@@ -1,23 +1,25 @@
 {
-  "name": "server2",
+  "name": "exam-invigilation-allocation-backend",
   "version": "1.0.0",
+  "description": "Enterprise Exam Invigilation and Hall Allocation Engine with Role-Based Access Control and Scheduling Algorithms",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "node --test tests/*.test.js",
+    "lint": "node --check index.js controllers/*.js services/*.js middlewares/*.js models/*.js routes/*.js utils/*.js"
   },
-  "author": "",
+  "author": "Hiruni Yasoda",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "crypto": "^1.0.1",
+    "bcrypt": "^5.1.1",
     "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "fs": "^0.0.1-security",
+    "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.14.1",
-    "nodemailer": "^6.10.1",
-    "nodemon": "^3.1.10",
-    "path": "^0.12.7"
+    "nodemailer": "^6.10.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }

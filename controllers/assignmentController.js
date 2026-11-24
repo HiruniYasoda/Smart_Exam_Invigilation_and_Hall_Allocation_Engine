@@ -1,34 +1,13 @@
-// controllers/assignmentController.js
-
 const AssignmentRequest = require('../models/AssignmentRequest');
 const Exam = require('../models/Exam');
 const Hall = require('../models/Hall');
-const HallBooking = require('../models/HallBooking');
 const Lecturer = require('../models/Lecturer');
-const { hasTimeOverlap } = require('../utils/timeUtils');
 const { createNotification } = require('../utils/notificationMessage');
+const allocationService = require('../services/allocationService');
 
-// Helper Functions
-function getRequiredCounts(studentCount) {
-  const supervisors = Math.ceil(studentCount / 180);
-  let invigilators = 1;
-  if (studentCount > 25) {
-    invigilators += Math.ceil((studentCount - 25) / 15);
-  }
-  return { supervisors, invigilators };
-}
-
-function isLecturerAvailable(lecturer, date, startTime, endTime) {
-  const hasConflict = lecturer.assignments?.some(a =>
-    a.date === date && hasTimeOverlap(startTime, endTime, a.startTime, a.endTime)
-  );
-  const isUnavailable = lecturer.unavailable?.some(a =>
-    a.date === date && hasTimeOverlap(startTime, endTime, a.startTime, a.endTime)
-  );
-  return !hasConflict && !isUnavailable;
-}
-
-// Controller Functions
+/**
+ * Controller: Assignment, Invigilation, and Session Lifecycle Management
+ */
 
 // POST /assignments/request
 const createRequest = async (req, res) => {
@@ -36,7 +15,10 @@ const createRequest = async (req, res) => {
     const { assignmentDetails, dueDate, lecturerId, courseId } = req.body;
 
     if (!assignmentDetails || !dueDate || !lecturerId || !courseId) {
-      return res.status(400).json({ message: 'Please provide all required fields: assignmentDetails, dueDate, lecturerId, and courseId' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Required fields missing: assignmentDetails, dueDate, lecturerId, and courseId are mandatory.' 
+      });
     }
 
     const newRequest = new AssignmentRequest({
@@ -51,32 +33,47 @@ const createRequest = async (req, res) => {
     const savedRequest = await newRequest.save();
 
     return res.status(201).json({
+      success: true,
       message: 'Assignment request created successfully',
       request: savedRequest,
     });
   } catch (error) {
     console.error('Error creating assignment request:', error);
-    return res.status(500).json({ message: 'Server error, please try again later' });
+    return res.status(500).json({ success: false, message: 'Server error processing assignment request' });
   }
 };
 
 // GET /assignments/lecturer/schedule
 const getLecturerSchedule = async (req, res) => {
   try {
-    const schedule = await AssignmentRequest.find({ lecturerId: req.user.id });
+    const schedule = await AssignmentRequest.find({
+      $or: [
+        { lecturerId: req.user.id },
+        { requestedLecturer: req.user.id },
+        { supervisors: req.user.id },
+        { invigilators: req.user.id }
+      ]
+    }).populate('examId');
+
     res.status(200).json({ success: true, schedule });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('getLecturerSchedule error:', err);
+    res.status(500).json({ success: false, message: 'Failed to retrieve lecturer schedule' });
   }
 };
 
 // GET /assignments/admin/view
 const viewAllRequests = async (req, res) => {
   try {
-    const requests = await AssignmentRequest.find();
+    const requests = await AssignmentRequest.find()
+      .populate('examId')
+      .populate('supervisors', 'name email rank')
+      .populate('invigilators', 'name email rank');
+
     res.status(200).json({ success: true, requests });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('viewAllRequests error:', err);
+    res.status(500).json({ success: false, message: 'Failed to retrieve assignment requests' });
   }
 };
 
@@ -84,17 +81,36 @@ const viewAllRequests = async (req, res) => {
 const updateRequestStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const updated = await AssignmentRequest.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Request not found' });
+    const allowedStatuses = ['pending', 'Accepted', 'Assigned', 'Rejected', 'Finished'];
+
+    if (!status || !allowedStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Invalid status. Allowed values: ${allowedStatuses.join(', ')}` 
+      });
     }
-    res.status(200).json({ success: true, updated });
+
+    const request = await AssignmentRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Assignment request not found' });
+    }
+
+    // Server-side ownership / role authorization check
+    const userRole = (req.user.role || '').toLowerCase();
+    const isOwner = request.lecturerId?.toString() === req.user._id.toString() ||
+                    request.requestedLecturer?.toString() === req.user._id.toString();
+
+    if (userRole !== 'admin' && !isOwner) {
+      return res.status(403).json({ success: false, message: 'Forbidden: You cannot modify this assignment' });
+    }
+
+    request.status = status;
+    const updated = await request.save();
+
+    res.status(200).json({ success: true, message: 'Status updated successfully', updated });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('updateRequestStatus error:', err);
+    res.status(500).json({ success: false, message: 'Failed to update request status' });
   }
 };
 
@@ -103,155 +119,162 @@ const markSessionAsFinished = async (req, res) => {
   try {
     const { examId, subjectCode } = req.body;
 
-    // Mark session finished
+    if (!examId || !subjectCode) {
+      return res.status(400).json({ success: false, message: 'examId and subjectCode are required' });
+    }
+
+    const exam = await Exam.findById(examId);
+    if (!exam) {
+      return res.status(404).json({ success: false, message: 'Exam session not found' });
+    }
+
+    const subject = exam.subjects.find(sub => sub.code === subjectCode);
+    if (!subject) {
+      return res.status(404).json({ success: false, message: `Subject code ${subjectCode} not found in this exam` });
+    }
+
+    // Role and ownership verification: only admin or assigned supervisor can mark as finished
+    const userRole = (req.user.role || '').toLowerCase();
+    if (userRole !== 'admin' && userRole !== 'lecturer') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Insufficient privileges' });
+    }
+
+    // Update session status in DB
     await AssignmentRequest.updateMany(
       { examId, subjectCode },
       { $set: { status: 'Finished' } }
     );
 
-    // Fetch exam and hall details
-    const exam = await Exam.findById(examId);
+    const requiredCount = (subject.studentCount || 0) + (subject.repeaters || 0);
     const halls = await Hall.find();
-    const subject = exam.subjects.find(sub => sub.code === subjectCode);
-    const requiredCount = subject.studentCount + subject.repeaters;
+    const availableHalls = allocationService.findAvailableHalls(
+      halls,
+      exam.date,
+      exam.startTime,
+      exam.endTime,
+      requiredCount
+    );
 
-    const { date, startTime, endTime } = exam;
+    const result = {
+      success: true,
+      message: 'Exam session marked as finished successfully.',
+      examId,
+      subjectCode,
+      availableHallsCount: availableHalls.length,
+      suitableHallsAvailable: availableHalls.length > 0
+    };
 
-    // Check if there's ANY hall available for that time period and capacity
-    const hallsAvailable = halls.filter(hall => {
-      const overlappingBooking = hall.bookings?.some(booking =>
-        booking.date === date &&
-        !(endTime <= booking.startTime || startTime >= booking.endTime)
-      );
-      return !overlappingBooking && hall.capacity >= requiredCount;
-    });
-
-    if (hallsAvailable.length === 0) {
-      const message = `🚨 No suitable hall found for "${subject.name}" (${subjectCode}) on ${date} between ${startTime}-${endTime}. Either halls are fully booked or too small for ${requiredCount} students. Consider splitting or changing time.`;
-
-      // Notify the admin
-      await createNotification(req.user.id, message);
-
-      return res.send(`
-        <h3 style="color:orange">Session marked as finished, but:</h3>
-        <p style="color:red">${message}</p>
-      `);
+    if (availableHalls.length === 0) {
+      const warning = `No suitable hall meeting capacity (${requiredCount}) found for ${subject.name} (${subjectCode}) on ${exam.date}`;
+      try {
+        await createNotification(req.user.id, warning);
+      } catch (e) {
+        console.error('Notification dispatch error:', e.message);
+      }
+      result.warning = warning;
     }
 
-    res.send('<h3 style="color:green">Session marked as finished successfully. Suitable halls available.</h3>');
+    return res.status(200).json(result);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Failed to mark session as finished.', error: error.message });
+    console.error('markSessionAsFinished error:', error);
+    res.status(500).json({ success: false, message: 'Failed to mark session as finished' });
   }
 };
 
 // GET /assignments/conflicts
 const checkConflicts = async (req, res) => {
-  res.status(200).json({ message: 'No conflicts found (placeholder)' });
+  try {
+    const { date } = req.query;
+    const filter = date ? { date } : {};
+
+    const assignments = await AssignmentRequest.find(filter);
+    const conflicts = [];
+
+    // Detect overlapping supervisor/invigilator allocations on the same date
+    for (let i = 0; i < assignments.length; i++) {
+      for (let j = i + 1; j < assignments.length; j++) {
+        const a1 = assignments[i];
+        const a2 = assignments[j];
+
+        if (a1.date === a2.date && allocationService.checkTimeOverlap(a1.startTime, a1.endTime, a2.startTime, a2.endTime)) {
+          // Check shared supervisors
+          const commonSupervisors = (a1.supervisors || []).filter(s =>
+            (a2.supervisors || []).some(s2 => s2.toString() === s.toString())
+          );
+
+          if (commonSupervisors.length > 0) {
+            conflicts.push({
+              type: 'SUPERVISOR_COLLISION',
+              date: a1.date,
+              subjects: [a1.subjectCode, a2.subjectCode],
+              conflictingStaffIds: commonSupervisors
+            });
+          }
+        }
+      }
+    }
+
+    res.status(200).json({ success: true, count: conflicts.length, conflicts });
+  } catch (err) {
+    console.error('checkConflicts error:', err);
+    res.status(500).json({ success: false, message: 'Failed to calculate scheduling conflicts' });
+  }
 };
 
 // POST /assignments/auto-assign
 const autoAssignInvigilators = async (req, res) => {
   try {
-    const exams = await Exam.find();
-    let lecturers = await Lecturer.find().lean();
-    const assignments = [];
+    const exams = await Exam.find({ status: { $ne: 'Finished' } });
+    const lecturers = await Lecturer.find().lean();
 
-    // Sort lecturers by rank (lowest first = highest qualified)
-    lecturers.sort((a, b) => a.rank - b.rank);
+    if (exams.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        message: 'No open exam sessions found for allocation.', 
+        data: [] 
+      });
+    }
 
-    for (const exam of exams) {
-      const { date, startTime, endTime } = exam;
+    const { assignments, warnings } = allocationService.autoAllocateStaff(exams, lecturers);
 
-      for (const subject of exam.subjects) {
-        const totalStudents = subject.studentCount;
-        const { supervisors: supCount, invigilators: invCount } = getRequiredCounts(totalStudents);
-        const assignment = {
-          examId: exam._id,
-          subjectCode: subject.code,
-          subject: subject.name,
-          date,
-          startTime,
-          endTime,
-          supervisorIds: [],
-          invigilatorIds: []
-        };
-
-        // Supervisor allocation
-        let supervisors = [];
-        const setter = lecturers.find(l => l._id.toString() === subject.setterId?.toString());
-
-        if (
-          setter &&
-          !setter.isTL &&
-          isLecturerAvailable(setter, date, startTime, endTime)
-        ) {
-          supervisors.push(setter);
-          setter.assignments.push({ date, startTime, endTime });
-        }
-
-        // Allocate other supervisors if needed
-        let eligibleSupervisors = lecturers.filter(l =>
-          !l.isTL &&
-          isLecturerAvailable(l, date, startTime, endTime) &&
-          l.faculty === subject.faculty &&
-          !supervisors.includes(l)
-        );
-
-        for (const sup of eligibleSupervisors) {
-          if (supervisors.length >= supCount) break;
-          supervisors.push(sup);
-          sup.assignments.push({ date, startTime, endTime });
-        }
-
-        if (supervisors.length < supCount) {
-          await createNotification(req.user.id, `❗ Not enough supervisors for ${subject.name} (${subject.code}) on ${date}`);
-        }
-
-        assignment.supervisorIds = supervisors.map(s => s._id);
-
-        // Invigilator allocation
-        let invigilators = [];
-        const lowestSupervisorRank = Math.max(...supervisors.map(s => s.rank));
-
-        const eligibleInvigilators = lecturers.filter(l =>
-          isLecturerAvailable(l, date, startTime, endTime) &&
-          l.rank > lowestSupervisorRank && // must be lower rank
-          !supervisors.includes(l)
-        );
-
-        for (const inv of eligibleInvigilators) {
-          if (invigilators.length >= invCount) break;
-          invigilators.push(inv);
-          inv.assignments.push({ date, startTime, endTime });
-        }
-
-        if (invigilators.length < invCount) {
-          await createNotification(req.user.id, `❗ Not enough invigilators for ${subject.name} (${subject.code}) on ${date}`);
-        }
-
-        assignment.invigilatorIds = invigilators.map(i => i._id);
-
-        // Save to DB
-        await AssignmentRequest.create({
-          examId: exam._id,
-          subjectCode: subject.code,
-          date,
-          startTime,
-          endTime,
-          supervisors: assignment.supervisorIds,
-          invigilators: assignment.invigilatorIds,
+    // Persist allocations
+    for (const alloc of assignments) {
+      await AssignmentRequest.findOneAndUpdate(
+        { examId: alloc.examId, subjectCode: alloc.subjectCode },
+        {
+          examId: alloc.examId,
+          subjectCode: alloc.subjectCode,
+          date: alloc.date,
+          startTime: alloc.startTime,
+          endTime: alloc.endTime,
+          supervisors: alloc.supervisorIds,
+          invigilators: alloc.invigilatorIds,
           status: 'Assigned'
-        });
+        },
+        { upsert: true, new: true }
+      );
+    }
 
-        assignments.push(assignment);
+    // Notify administrator of any staffing shortages
+    if (warnings.length > 0) {
+      for (const warning of warnings) {
+        try {
+          await createNotification(req.user.id, warning);
+        } catch (e) {
+          console.error('Notification dispatch error:', e.message);
+        }
       }
     }
 
-    res.status(200).json({ message: 'Auto allocation completed.', data: assignments });
+    res.status(200).json({ 
+      success: true, 
+      message: 'Automatic allocation completed successfully.', 
+      data: assignments,
+      warnings 
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Auto allocation failed.', error: error.message });
+    console.error('autoAssignInvigilators error:', error);
+    res.status(500).json({ success: false, message: 'Auto allocation process failed' });
   }
 };
 
