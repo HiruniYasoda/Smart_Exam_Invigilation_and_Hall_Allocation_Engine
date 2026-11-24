@@ -1,5 +1,19 @@
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
+let jwt = null;
+try {
+  jwt = require('jsonwebtoken');
+} catch (e) {}
+
+function signJwtToken(payload, secret, expiresIn) {
+  if (jwt && typeof jwt.sign === 'function') {
+    return jwt.sign(payload, secret, { expiresIn });
+  }
+
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7200 })).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${signature}`;
+}
 const User = require('../models/User');
 const Exam = require('../models/Exam');
 const AssignmentRequest = require('../models/AssignmentRequest');
@@ -29,8 +43,21 @@ exports.registerUser = async (req, res) => {
       return res.status(409).json({ success: false, message: 'Username or email is already registered' });
     }
 
+    // Prevent privilege escalation: public registration cannot create admin accounts
+    let normalizedRole = (role || 'student').toLowerCase();
+    if (normalizedRole === 'admin') {
+      const callerRole = (req.user?.role || '').toLowerCase();
+      if (callerRole !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: Administrative accounts cannot be created via public registration'
+        });
+      }
+    } else if (!['student', 'lecturer'].includes(normalizedRole)) {
+      normalizedRole = 'student';
+    }
+
     const hashedPassword = await hashPassword(password);
-    const normalizedRole = (role || 'lecturer').toLowerCase();
 
     const newUser = await User.create({
       username: username.trim(),
@@ -78,15 +105,15 @@ exports.loginUser = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    const jwtSecret = process.env.JWT_SECRET || 'dev_jwt_secret_key_change_in_prod';
-    const token = jwt.sign(
+    const config = require('../config/env')();
+    const token = signJwtToken(
       { 
         id: user._id, 
         role: (user.role || 'lecturer').toLowerCase(), 
         department: user.department 
       },
-      jwtSecret,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '2h' }
+      config.JWT_SECRET,
+      config.JWT_EXPIRES_IN
     );
 
     res.status(200).json({

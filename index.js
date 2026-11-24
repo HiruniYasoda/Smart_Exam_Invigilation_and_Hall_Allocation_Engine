@@ -6,6 +6,9 @@ const { errorHandler } = require('./middlewares/errorHandler');
 
 dotenv.config();
 
+const validateEnv = require('./config/env');
+const config = validateEnv();
+
 const app = express();
 
 // Body parsing middlewares
@@ -13,10 +16,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Database connection lifecycle
-const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/exam_allocation';
-
-if (process.env.NODE_ENV !== 'test') {
-  mongoose.connect(mongoUri)
+if (config.NODE_ENV !== 'test') {
+  mongoose.connect(config.MONGO_URI)
     .then(() => {
       console.log('MongoDB connected successfully');
     })
