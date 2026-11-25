@@ -6,6 +6,7 @@ const assignmentController = require('../controllers/assignmentController');
 const authController = require('../controllers/authController');
 const examController = require('../controllers/examController');
 const lecturerController = require('../controllers/lecturerController');
+const hallController = require('../controllers/hallController');
 
 // Middlewares
 const { authenticate, authorizeRoles } = require('../middlewares/auth');
@@ -102,6 +103,14 @@ router.get('/exams/department', authenticate, examController.getExamsByDepartmen
 router.get('/exams/available-halls', authenticate, examController.getAvailableHallsAsButtons);
 router.put('/exams/update/:id', authenticate, authorizeRoles('admin'), examController.updateExamSession);
 router.delete('/exams/delete/:id', authenticate, authorizeRoles('admin'), examController.deleteExamSession);
+
+// ==========================================
+// Hall Management Routes
+// ==========================================
+router.post('/halls/create', authenticate, authorizeRoles('admin'), hallController.createHall);
+router.get('/halls/all', authenticate, hallController.getAllHalls);
+router.put('/halls/update/:id', authenticate, authorizeRoles('admin'), hallController.updateHall);
+router.delete('/halls/delete/:id', authenticate, authorizeRoles('admin'), hallController.deleteHall);
 
 // ==========================================
 // Lecturer Directory & Assignment Routes
