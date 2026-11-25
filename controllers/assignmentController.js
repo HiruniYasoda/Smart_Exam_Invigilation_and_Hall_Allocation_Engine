@@ -226,6 +226,7 @@ const autoAssignInvigilators = async (req, res) => {
   try {
     const exams = await Exam.find({ status: { $ne: 'Finished' } });
     const lecturers = await Lecturer.find().lean();
+    const halls = await Hall.find().lean();
 
     if (exams.length === 0) {
       return res.status(200).json({ 
@@ -235,25 +236,75 @@ const autoAssignInvigilators = async (req, res) => {
       });
     }
 
-    const { assignments, warnings } = allocationService.autoAllocateStaff(exams, lecturers);
+    const { assignments, warnings } = allocationService.autoAllocateStaff(exams, lecturers, halls);
 
-    // Persist allocations
+    // Persist allocations, exam metadata, and hall bookings
     for (const alloc of assignments) {
       await AssignmentRequest.findOneAndUpdate(
         { examId: alloc.examId, subjectCode: alloc.subjectCode },
         {
           examId: alloc.examId,
           subjectCode: alloc.subjectCode,
+          subjectName: alloc.subjectName,
+          department: alloc.department,
+          studentCount: alloc.studentCount,
           date: alloc.date,
           startTime: alloc.startTime,
           endTime: alloc.endTime,
+          hallId: alloc.hallId || undefined,
+          hall: alloc.hall || undefined,
           supervisors: alloc.supervisorIds,
           invigilators: alloc.invigilatorIds,
           status: 'Assigned'
         },
         { upsert: true, new: true }
       );
+
+      // Sync summary fields onto the Exam subject subdocument
+      const examDoc = exams.find(e => e._id.toString() === alloc.examId.toString());
+      if (examDoc) {
+        const subjectDoc = examDoc.subjects.find(s => s.code === alloc.subjectCode);
+        if (subjectDoc) {
+          if (alloc.hall) subjectDoc.assignedHall = alloc.hall;
+          if (alloc.supervisorNames.length > 0) {
+            subjectDoc.assignedSupervisor = alloc.supervisorNames.join(', ');
+          }
+          if (alloc.invigilatorNames.length > 0) {
+            subjectDoc.assignedInvigilator = alloc.invigilatorNames.join(', ');
+          }
+        }
+      }
+
+      // Persist hall booking if not already recorded
+      if (alloc.hallId) {
+        await Hall.updateOne(
+          {
+            _id: alloc.hallId,
+            bookings: {
+              $not: {
+                $elemMatch: {
+                  examId: alloc.examId,
+                  subject: alloc.subjectCode
+                }
+              }
+            }
+          },
+          {
+            $push: {
+              bookings: {
+                date: alloc.date,
+                startTime: alloc.startTime,
+                endTime: alloc.endTime,
+                subject: alloc.subjectCode,
+                examId: alloc.examId
+              }
+            }
+          }
+        );
+      }
     }
+
+    await Promise.all(exams.map(e => e.save()));
 
     // Notify administrator of any staffing shortages
     if (warnings.length > 0) {

@@ -131,12 +131,17 @@ function getNumericalRank(lecturer) {
  * @param {Array} staffList 
  * @returns {{ assignments: Array, warnings: Array }}
  */
-function autoAllocateStaff(exams, staffList) {
+function autoAllocateStaff(exams, staffList, hallList = []) {
   const lecturers = (staffList || []).map(l => ({
     ...l,
     numericRank: getNumericalRank(l),
     assignments: [...(l.assignments || [])]
   }));
+
+  const halls = (hallList || []).map(h => ({
+    ...h,
+    bookings: [...(h.bookings || [])]
+  })).sort((a, b) => (a.capacity || 0) - (b.capacity || 0));
 
   // Sort by seniority (highest qualified first)
   lecturers.sort((a, b) => a.numericRank - b.numericRank);
@@ -155,12 +160,41 @@ function autoAllocateStaff(exams, staffList) {
         examId: exam._id,
         subjectCode: subject.code,
         subject: subject.name,
+        department: subject.department,
+        studentCount: totalStudents,
         date,
         startTime,
         endTime,
+        hallId: null,
+        hallName: subject.assignedHall || null,
         supervisors: [],
         invigilators: []
       };
+
+      // 0. Hall Selection (if hall catalog was supplied)
+      if (halls.length > 0) {
+        let selectedHall = null;
+        if (subject.assignedHall) {
+          selectedHall = halls.find(h => h.name === subject.assignedHall) || null;
+        }
+        if (!selectedHall) {
+          const availableHalls = findAvailableHalls(halls, date, startTime, endTime, totalStudents);
+          selectedHall = availableHalls[0] || null;
+        }
+        if (selectedHall) {
+          allocation.hallId = selectedHall._id || null;
+          allocation.hallName = selectedHall.name;
+          selectedHall.bookings.push({
+            date,
+            startTime,
+            endTime,
+            subject: subject.code,
+            examId: exam._id
+          });
+        } else {
+          warnings.push(`No available hall with capacity ${totalStudents} for ${subject.name} (${subject.code}) on ${date}`);
+        }
+      }
 
       // 1. Paper Setter Priority
       const setterIdStr = subject.setterId ? subject.setterId.toString() : null;
@@ -213,11 +247,17 @@ function autoAllocateStaff(exams, staffList) {
         examId: allocation.examId,
         subjectCode: allocation.subjectCode,
         subjectName: allocation.subject,
+        department: allocation.department,
+        studentCount: allocation.studentCount,
         date,
         startTime,
         endTime,
+        hallId: allocation.hallId,
+        hall: allocation.hallName,
         supervisorIds: allocation.supervisors.map(s => s._id),
         invigilatorIds: allocation.invigilators.map(i => i._id),
+        supervisorNames: allocation.supervisors.map(s => s.name),
+        invigilatorNames: allocation.invigilators.map(i => i.name),
         supervisorsCount: allocation.supervisors.length,
         invigilatorsCount: allocation.invigilators.length,
         requiredSupervisors: supCount,

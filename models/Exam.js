@@ -5,8 +5,10 @@ const SubjectSchema = new mongoose.Schema({
   name: { type: String, required: true },
   code: { type: String, required: true },
   department: { type: String, required: true },
+  faculty: { type: String },
   studentCount: { type: Number, required: true },
-  repeaters: { type: Number, required: true },
+  repeaters: { type: Number, default: 0 },
+  setterId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lecturer' },
   assignedHall: { type: String }, 
   assignedSupervisor: { type: String }, 
   assignedInvigilator: { type: String } 
