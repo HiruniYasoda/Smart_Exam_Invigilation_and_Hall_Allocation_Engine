@@ -91,6 +91,7 @@ router.post(
 router.post('/auth/register', authController.registerUser);
 router.post('/auth/login', authController.loginUser);
 router.get('/auth/profile', authenticate, authController.getUserProfile);
+router.put('/auth/profile', authenticate, authController.updateUserProfile);
 router.post('/auth/forgot-password', authController.forgotPassword);
 router.post('/auth/reset-password', authController.resetPassword);
 

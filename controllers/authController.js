@@ -239,7 +239,7 @@ exports.resetPassword = async (req, res) => {
 };
 
 /**
- * Get authenticated user profile.
+ * Get authenticated user profile (plus linked lecturer profile if applicable).
  */
 exports.getUserProfile = async (req, res) => {
   try {
@@ -247,10 +247,59 @@ exports.getUserProfile = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    res.status(200).json({ success: true, user });
+    const lecturer = await findLecturerForUser(user);
+    res.status(200).json({ success: true, user, lecturer });
   } catch (error) {
     console.error('GetUserProfile error:', error);
     res.status(500).json({ success: false, message: 'Internal server error retrieving user profile' });
+  }
+};
+
+/**
+ * Update authenticated user profile and linked lecturer record.
+ */
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const { name, email, department, contact } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = email.trim().toLowerCase();
+      const conflict = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } });
+      if (conflict) {
+        return res.status(409).json({ success: false, message: 'Email is already in use by another account' });
+      }
+      user.email = normalizedEmail;
+    }
+
+    if (department !== undefined) {
+      user.department = department.trim();
+    }
+
+    await user.save();
+
+    let lecturer = await findLecturerForUser(user);
+    if (lecturer) {
+      if (name !== undefined && name.trim()) lecturer.name = name.trim();
+      if (email !== undefined) lecturer.email = user.email;
+      if (department !== undefined && department.trim()) lecturer.department = department.trim();
+      if (contact !== undefined) lecturer.contact = contact.trim();
+      await lecturer.save();
+    }
+
+    const sanitizedUser = await User.findById(user._id).select('-password -resetPasswordToken -resetPasswordExpires');
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: sanitizedUser,
+      lecturer
+    });
+  } catch (error) {
+    console.error('updateUserProfile error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error updating profile' });
   }
 };
 
@@ -298,25 +347,33 @@ exports.getStudentTimetable = async (req, res) => {
  */
 exports.getLecturerNotifications = async (req, res) => {
   try {
-    const lecturerId = req.user.id;
+    const lecturer = await findLecturerForUser(req.user);
+    const targetId = lecturer?._id || req.user.id;
 
     const requests = await AssignmentRequest.find({
       $or: [
-        { requestedLecturer: lecturerId },
-        { supervisors: lecturerId },
-        { invigilators: lecturerId }
+        { supervisors: targetId },
+        { invigilators: targetId }
       ],
       status: { $in: ['Assigned', 'pending', 'Accepted'] }
     }).populate('examId');
 
-    const notifications = requests.map(r => ({
-      id: r._id,
-      subject: r.subjectCode,
-      date: r.date || (r.timeSlot && r.timeSlot.date),
-      time: r.startTime && r.endTime ? `${r.startTime} - ${r.endTime}` : 'TBD',
-      status: r.status,
-      message: `You are assigned to supervise/invigilate ${r.subjectCode}`
-    }));
+    const notifications = requests.map(r => {
+      const isSupervisor = (r.supervisors || []).some(
+        id => id.toString() === targetId.toString()
+      );
+      return {
+        id: r._id,
+        subject: r.subjectName || r.subjectCode,
+        subjectCode: r.subjectCode,
+        date: r.date,
+        time: r.startTime && r.endTime ? `${r.startTime} - ${r.endTime}` : 'TBD',
+        hall: r.hall || 'TBD',
+        role: isSupervisor ? 'Supervisor' : 'Invigilator',
+        status: r.status,
+        message: `You are assigned as ${isSupervisor ? 'Supervisor' : 'Invigilator'} for ${r.subjectCode} on ${r.date} (${r.startTime} - ${r.endTime})`
+      };
+    });
 
     res.status(200).json({ success: true, notifications });
   } catch (error) {
@@ -330,18 +387,42 @@ exports.getLecturerNotifications = async (req, res) => {
  */
 exports.getExamAssignmentReport = async (req, res) => {
   try {
-    const exams = await Exam.find();
+    const [exams, assignments] = await Promise.all([
+      Exam.find().lean(),
+      AssignmentRequest.find()
+        .populate('supervisors', 'name rank')
+        .populate('invigilators', 'name rank')
+        .lean()
+    ]);
+
+    const assignmentMap = new Map(
+      assignments.map(a => [`${a.examId?.toString()}_${a.subjectCode}`, a])
+    );
 
     const report = exams.flatMap(exam =>
-      exam.subjects.map(subject => ({
-        date: exam.date,
-        time: `${exam.startTime} - ${exam.endTime}`,
-        subject: subject.name,
-        degree: subject.department,
-        venue: subject.assignedHall || 'TBD',
-        supervisor: subject.assignedSupervisor || 'TBD',
-        invigilator: subject.assignedInvigilator || 'TBD'
-      }))
+      (exam.subjects || []).map(subject => {
+        const key = `${exam._id.toString()}_${subject.code}`;
+        const alloc = assignmentMap.get(key);
+        const supervisors = alloc?.supervisors?.map(s => s.name) || (subject.assignedSupervisor ? [subject.assignedSupervisor] : []);
+        const invigilators = alloc?.invigilators?.map(i => i.name) || (subject.assignedInvigilator ? [subject.assignedInvigilator] : []);
+
+        return {
+          examId: exam._id,
+          code: subject.code,
+          date: exam.date,
+          time: `${exam.startTime} - ${exam.endTime}`,
+          subject: `${subject.name} (${subject.code})`,
+          subjectName: subject.name,
+          degree: subject.department,
+          studentCount: (subject.studentCount || 0) + (subject.repeaters || 0),
+          venue: alloc?.hall || subject.assignedHall || 'TBD',
+          supervisor: supervisors.join(', ') || 'TBD',
+          supervisors,
+          invigilators,
+          invigilator: invigilators.join(', ') || 'TBD',
+          status: alloc?.status || exam.status
+        };
+      })
     );
 
     res.status(200).json({ success: true, data: report });
