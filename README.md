@@ -112,26 +112,49 @@ The allocation engine (`services/allocationService.js`) enforces strict universi
 | `POST` | `/api/auth/login` | Public | Authenticate user credentials and receive JWT. |
 | `POST` | `/api/auth/forgot-password` | Public | Request secure password reset link (anti-enumeration). |
 | `POST` | `/api/auth/reset-password` | Public | Reset password using hashed reset token. |
-| `GET` | `/api/auth/profile` | Authenticated | Retrieve authenticated user profile (password stripped). |
+| `GET` | `/api/auth/profile` | Authenticated | Retrieve authenticated user & linked lecturer profile. |
+| `PUT` | `/api/auth/profile` | Authenticated | Update user & linked lecturer profile fields. |
 | `GET` | `/api/auth/student-timetable` | Student / Admin | Retrieve exam timetable filtered by department. |
 | `GET` | `/api/auth/lecturer-notifications` | Lecturer / Admin | Retrieve supervision and invigilation notifications. |
+| `GET` | `/api/auth/exam-assignment-report` | Admin | Retrieve detailed exam assignment report. |
 
 ### Exam Allocation & Scheduling
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/assignments/auto-assign` | Admin | Execute automatic supervisor & invigilator allocation. |
-| `GET` | `/api/assignments/conflicts` | Admin / Lecturer | Scan for overlapping staff assignments. |
+| `POST` | `/api/assignments/auto-assign` | Admin | Execute automatic supervisor, invigilator & hall allocation. |
+| `POST` | `/api/assignments/override` | Admin | Manually override allocation and record `OverrideLog`. |
+| `GET` | `/api/assignments/overrides` | Admin | View manual override audit logs. |
+| `GET` | `/api/assignments/conflicts` | Admin / Lecturer | Scan for overlapping staff/hall assignments. |
 | `POST` | `/api/assignments/finish` | Admin / Lecturer | Mark exam session finished and verify hall availability. |
 | `GET` | `/api/assignments/admin/view` | Admin | View all exam assignment requests. |
+| `GET` | `/api/assignments/lecturer/schedule` | Admin / Lecturer | View duties assigned to the logged-in lecturer. |
 | `PUT` | `/api/assignments/status/:id` | Admin / Lecturer | Update assignment status (ownership enforced). |
 
-### Exam & Lecturer Management
+### Exam, Hall, Lecturer, Notification & Duty Pay
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/exams/create` | Admin | Schedule a new exam session with subject parameters. |
+| `GET` | `/api/exams/all` | Authenticated | List all exam sessions. |
+| `PUT` | `/api/exams/update/:id` | Admin | Update an exam session. |
+| `DELETE` | `/api/exams/delete/:id` | Admin | Delete an exam session. |
 | `GET` | `/api/exams/available-halls` | Authenticated | Filter halls meeting capacity and availability constraints. |
+| `POST` | `/api/halls/create` | Admin | Create an exam hall. |
+| `GET` | `/api/halls/all` | Authenticated | List all exam halls. |
+| `PUT` | `/api/halls/update/:id` | Admin | Update an exam hall. |
+| `DELETE` | `/api/halls/delete/:id` | Admin | Delete an exam hall. |
 | `POST` | `/api/lecturers/create` | Admin | Register academic staff with rank and department. |
+| `GET` | `/api/lecturers/all` | Authenticated | List all lecturers. |
+| `PUT` | `/api/lecturers/update/:id` | Admin | Update a lecturer record. |
+| `DELETE` | `/api/lecturers/delete/:id` | Admin | Delete a lecturer record. |
 | `GET` | `/api/lecturers/available` | Authenticated | Query academic staff available for a specific time window. |
+| `GET` | `/api/lecturers/schedule` | Lecturer / Admin | Retrieve exam duty schedule for logged-in lecturer. |
+| `POST` | `/api/notifications/send` | Admin | Send announcement or duty notification. |
+| `GET` | `/api/notifications/admin` | Admin | List dispatched notifications. |
+| `GET` | `/api/notifications/my` | Authenticated | List user's personal and role notifications. |
+| `PATCH` | `/api/notifications/:id/read` | Authenticated | Mark a notification as read. |
+| `GET` | `/api/dutypay/rates` | Admin / Lecturer | Get supervisor and invigilator pay rates. |
+| `PUT` | `/api/dutypay/rates` | Admin | Update supervisor and invigilator pay rates. |
+| `GET` | `/api/dutypay/summary` | Admin | Calculate per-lecturer duty counts and payouts. |
 
 ---
 
