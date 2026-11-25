@@ -1,9 +1,12 @@
-// import mongoose from 'mongoose';
 const mongoose = require('mongoose');
+
 const LecturerSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  department: { type: String, required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  department: { type: String, required: true, trim: true },
+  contact: { type: String, trim: true, default: '' },
+  isTL: { type: Boolean, default: false },
   rank: {
     type: String,
     enum: [
@@ -20,6 +23,13 @@ const LecturerSchema = new mongoose.Schema({
     required: true
   },
   availability: [
+    {
+      date: String,
+      startTime: String,
+      endTime: String
+    }
+  ],
+  unavailable: [
     {
       date: String,
       startTime: String,

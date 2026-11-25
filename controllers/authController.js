@@ -15,8 +15,10 @@ function signJwtToken(payload, secret, expiresIn) {
   return `${header}.${body}.${signature}`;
 }
 const User = require('../models/User');
+const Lecturer = require('../models/Lecturer');
 const Exam = require('../models/Exam');
 const AssignmentRequest = require('../models/AssignmentRequest');
+const { findLecturerForUser } = require('../utils/lecturerResolver');
 const { sendPasswordResetEmail, sendNewPasswordEmail } = require('../utils/email');
 const { hashPassword, comparePassword, hashToken } = require('../utils/passwordUtils');
 
@@ -66,6 +68,23 @@ exports.registerUser = async (req, res) => {
       role: normalizedRole,
       department: department ? department.trim() : undefined
     });
+
+    // Link existing Lecturer profile or create one for newly registered lecturers
+    if (normalizedRole === 'lecturer') {
+      const existingLecturer = await Lecturer.findOne({ email: newUser.email });
+      if (existingLecturer) {
+        existingLecturer.userId = newUser._id;
+        await existingLecturer.save();
+      } else {
+        await Lecturer.create({
+          userId: newUser._id,
+          name: newUser.username,
+          email: newUser.email,
+          department: newUser.department || 'General',
+          rank: 'Lecturer'
+        });
+      }
+    }
 
     res.status(201).json({
       success: true,
