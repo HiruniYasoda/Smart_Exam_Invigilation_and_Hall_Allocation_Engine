@@ -9,6 +9,7 @@ const lecturerController = require('../controllers/lecturerController');
 const hallController = require('../controllers/hallController');
 const allocationController = require('../controllers/allocationController');
 const notificationController = require('../controllers/notificationController');
+const dutyPayController = require('../controllers/dutyPayController');
 
 // Middlewares
 const { authenticate, authorizeRoles } = require('../middlewares/auth');
@@ -155,5 +156,12 @@ router.post('/notifications/send', authenticate, authorizeRoles('admin'), notifi
 router.get('/notifications/admin', authenticate, authorizeRoles('admin'), notificationController.getAllNotificationsAdmin);
 router.get('/notifications/my', authenticate, notificationController.getMyNotifications);
 router.patch('/notifications/:id/read', authenticate, notificationController.markAsRead);
+
+// ==========================================
+// Duty Pay & Allowance Routes
+// ==========================================
+router.get('/dutypay/rates', authenticate, authorizeRoles('admin', 'lecturer'), dutyPayController.getPayRates);
+router.put('/dutypay/rates', authenticate, authorizeRoles('admin'), dutyPayController.updatePayRates);
+router.get('/dutypay/summary', authenticate, authorizeRoles('admin'), dutyPayController.getDutyPaySummary);
 
 module.exports = router;
