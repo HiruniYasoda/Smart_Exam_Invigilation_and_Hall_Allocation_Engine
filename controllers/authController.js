@@ -35,14 +35,6 @@ exports.registerUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
     }
 
-    const existingUser = await User.findOne({ 
-      $or: [{ username: username.trim() }, { email: email.trim().toLowerCase() }] 
-    });
-
-    if (existingUser) {
-      return res.status(409).json({ success: false, message: 'Username or email is already registered' });
-    }
-
     // Prevent privilege escalation: public registration cannot create admin accounts
     let normalizedRole = (role || 'student').toLowerCase();
     if (normalizedRole === 'admin') {
@@ -55,6 +47,14 @@ exports.registerUser = async (req, res) => {
       }
     } else if (!['student', 'lecturer'].includes(normalizedRole)) {
       normalizedRole = 'student';
+    }
+
+    const existingUser = await User.findOne({ 
+      $or: [{ username: username.trim() }, { email: email.trim().toLowerCase() }] 
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: 'Username or email is already registered' });
     }
 
     const hashedPassword = await hashPassword(password);
