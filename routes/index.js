@@ -7,6 +7,7 @@ const authController = require('../controllers/authController');
 const examController = require('../controllers/examController');
 const lecturerController = require('../controllers/lecturerController');
 const hallController = require('../controllers/hallController');
+const allocationController = require('../controllers/allocationController');
 
 // Middlewares
 const { authenticate, authorizeRoles } = require('../middlewares/auth');
@@ -61,6 +62,27 @@ router.post(
   authenticate, 
   authorizeRoles('admin'), 
   assignmentController.autoAssignInvigilators
+);
+
+router.post(
+  '/assignments/override',
+  authenticate,
+  authorizeRoles('admin'),
+  allocationController.overrideAllocation
+);
+
+router.get(
+  '/assignments/overrides',
+  authenticate,
+  authorizeRoles('admin'),
+  allocationController.getOverrideLogs
+);
+
+router.post(
+  '/assignments/override-log',
+  authenticate,
+  authorizeRoles('admin'),
+  allocationController.logOverrides
 );
 
 // ==========================================
