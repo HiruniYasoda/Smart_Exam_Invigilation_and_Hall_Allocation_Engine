@@ -3,6 +3,7 @@ const Exam = require('../models/Exam');
 const Hall = require('../models/Hall');
 const Lecturer = require('../models/Lecturer');
 const { createNotification } = require('../utils/notificationMessage');
+const { findLecturerForUser } = require('../utils/lecturerResolver');
 const allocationService = require('../services/allocationService');
 
 /**
@@ -12,22 +13,26 @@ const allocationService = require('../services/allocationService');
 // POST /assignments/request
 const createRequest = async (req, res) => {
   try {
-    const { assignmentDetails, dueDate, lecturerId, courseId } = req.body;
+    const { examId, subjectCode, subjectName, date, startTime, endTime, supervisors, invigilators, hall } = req.body;
 
-    if (!assignmentDetails || !dueDate || !lecturerId || !courseId) {
+    if (!examId || !subjectCode || !date || !startTime || !endTime) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Required fields missing: assignmentDetails, dueDate, lecturerId, and courseId are mandatory.' 
+        message: 'Required fields missing: examId, subjectCode, date, startTime, and endTime are mandatory.' 
       });
     }
 
     const newRequest = new AssignmentRequest({
-      assignmentDetails,
-      dueDate,
-      lecturerId,
-      courseId,
-      status: 'pending',
-      createdBy: req.user._id,
+      examId,
+      subjectCode,
+      subjectName,
+      date,
+      startTime,
+      endTime,
+      hall,
+      supervisors: supervisors || [],
+      invigilators: invigilators || [],
+      status: 'Assigned'
     });
 
     const savedRequest = await newRequest.save();
@@ -46,16 +51,21 @@ const createRequest = async (req, res) => {
 // GET /assignments/lecturer/schedule
 const getLecturerSchedule = async (req, res) => {
   try {
+    const lecturer = await findLecturerForUser(req.user);
+    const targetId = lecturer?._id || req.user._id || req.user.id;
+
     const schedule = await AssignmentRequest.find({
       $or: [
-        { lecturerId: req.user.id },
-        { requestedLecturer: req.user.id },
-        { supervisors: req.user.id },
-        { invigilators: req.user.id }
+        { supervisors: targetId },
+        { invigilators: targetId }
       ]
-    }).populate('examId');
+    })
+      .populate('examId')
+      .populate('supervisors', 'name email rank')
+      .populate('invigilators', 'name email rank')
+      .sort({ date: 1, startTime: 1 });
 
-    res.status(200).json({ success: true, schedule });
+    res.status(200).json({ success: true, lecturerId: lecturer?._id || null, schedule });
   } catch (err) {
     console.error('getLecturerSchedule error:', err);
     res.status(500).json({ success: false, message: 'Failed to retrieve lecturer schedule' });
@@ -97,8 +107,16 @@ const updateRequestStatus = async (req, res) => {
 
     // Server-side ownership / role authorization check
     const userRole = (req.user.role || '').toLowerCase();
-    const isOwner = request.lecturerId?.toString() === req.user._id.toString() ||
-                    request.requestedLecturer?.toString() === req.user._id.toString();
+    const lecturer = await findLecturerForUser(req.user);
+    const ownerIds = new Set([
+      req.user._id?.toString(),
+      req.user.id?.toString(),
+      lecturer?._id?.toString()
+    ].filter(Boolean));
+
+    const isOwner =
+      (request.supervisors || []).some(id => ownerIds.has(id.toString())) ||
+      (request.invigilators || []).some(id => ownerIds.has(id.toString()));
 
     if (userRole !== 'admin' && !isOwner) {
       return res.status(403).json({ success: false, message: 'Forbidden: You cannot modify this assignment' });
@@ -208,6 +226,28 @@ const checkConflicts = async (req, res) => {
               date: a1.date,
               subjects: [a1.subjectCode, a2.subjectCode],
               conflictingStaffIds: commonSupervisors
+            });
+          }
+
+          const commonInvigilators = (a1.invigilators || []).filter(inv =>
+            (a2.invigilators || []).some(inv2 => inv2.toString() === inv.toString())
+          );
+
+          if (commonInvigilators.length > 0) {
+            conflicts.push({
+              type: 'INVIGILATOR_COLLISION',
+              date: a1.date,
+              subjects: [a1.subjectCode, a2.subjectCode],
+              conflictingStaffIds: commonInvigilators
+            });
+          }
+
+          if (a1.hall && a2.hall && a1.hall === a2.hall) {
+            conflicts.push({
+              type: 'HALL_COLLISION',
+              date: a1.date,
+              hall: a1.hall,
+              subjects: [a1.subjectCode, a2.subjectCode]
             });
           }
         }
