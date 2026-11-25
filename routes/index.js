@@ -117,6 +117,7 @@ router.delete('/halls/delete/:id', authenticate, authorizeRoles('admin'), hallCo
 // ==========================================
 router.post('/lecturers/create', authenticate, authorizeRoles('admin'), lecturerController.createLecturer);
 router.put('/lecturers/update/:id', authenticate, authorizeRoles('admin'), lecturerController.updateLecturer);
+router.delete('/lecturers/delete/:id', authenticate, authorizeRoles('admin'), lecturerController.deleteLecturer);
 router.get('/lecturers/all', authenticate, lecturerController.getAllLecturers);
 router.get('/lecturers/available', authenticate, lecturerController.getAvailableLecturers);
 router.post('/lecturers/assign', authenticate, authorizeRoles('admin'), lecturerController.assignLecturer);
