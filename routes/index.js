@@ -1,5 +1,22 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
+
+const DB_STATES = {
+  0: 'disconnected',
+  1: 'connected',
+  2: 'connecting',
+  3: 'disconnecting'
+};
+
+router.get('/health', (req, res) => {
+  const readyState = mongoose.connection.readyState;
+  res.status(200).json({
+    success: true,
+    status: 'ok',
+    database: DB_STATES[readyState] || 'unknown'
+  });
+});
 
 // Controllers
 const assignmentController = require('../controllers/assignmentController');
