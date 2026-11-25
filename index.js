@@ -1,5 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors');
 const dotenv = require('dotenv');
 const routes = require('./routes/index');
 const { errorHandler } = require('./middlewares/errorHandler');
@@ -10,6 +11,23 @@ const validateEnv = require('./config/env');
 const config = validateEnv();
 
 const app = express();
+
+// CORS configuration for Vite frontend and configured client origins
+const allowedOrigins = new Set(
+  [config.FRONTEND_URL, ...(config.CORS_ORIGINS ? config.CORS_ORIGINS.split(',') : [])]
+    .map(origin => origin.trim())
+    .filter(Boolean)
+);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
 
 // Body parsing middlewares
 app.use(express.json());

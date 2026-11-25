@@ -31,7 +31,8 @@ function validateEnv() {
     MONGO_URI: process.env.MONGO_URI || (isTest ? 'mongodb://127.0.0.1:27017/exam_allocation_test' : 'mongodb://127.0.0.1:27017/exam_allocation'),
     JWT_SECRET: process.env.JWT_SECRET || (isTest ? 'test_jwt_secret_key_32_characters_long_for_tests' : 'dev_jwt_secret_key_32_characters_long_for_dev'),
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '2h',
-    FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
+    FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
+    CORS_ORIGINS: process.env.CORS_ORIGINS || '',
     EMAIL_USER: process.env.EMAIL_USER || '',
     EMAIL_PASS: process.env.EMAIL_PASS || '',
   };
