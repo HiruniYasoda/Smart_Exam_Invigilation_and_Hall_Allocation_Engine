@@ -3,6 +3,10 @@ const assert = require('node:assert');
 const crypto = require('crypto');
 const authController = require('../controllers/authController');
 const assignmentController = require('../controllers/assignmentController');
+const hallController = require('../controllers/hallController');
+const allocationController = require('../controllers/allocationController');
+const notificationController = require('../controllers/notificationController');
+const dutyPayController = require('../controllers/dutyPayController');
 const { authenticate, authorizeRoles } = require('../middlewares/auth');
 const validateEnv = require('../config/env');
 const config = validateEnv();
@@ -267,6 +271,56 @@ describe('API Integration & Endpoint Protection Tests', () => {
       assert.strictEqual(res.getStatusCode(), 400);
       assert.strictEqual(res.getBody().success, false);
       assert.match(res.getBody().message, /invalid status/i);
+    });
+  });
+
+  describe('Hall, Override, Notification, and DutyPay Validations', () => {
+    it('rejects hall creation when name or positive capacity is missing with 400', async () => {
+      const { req, res } = createMockHttp({
+        body: { name: 'Hall X', capacity: 0 },
+        user: { id: 'admin_1', role: 'admin' }
+      });
+
+      await hallController.createHall(req, res);
+
+      assert.strictEqual(res.getStatusCode(), 400);
+      assert.strictEqual(res.getBody().success, false);
+    });
+
+    it('rejects manual override without assignmentId with 400', async () => {
+      const { req, res } = createMockHttp({
+        body: { hall: 'Main Hall' },
+        user: { id: 'admin_1', role: 'admin' }
+      });
+
+      await allocationController.overrideAllocation(req, res);
+
+      assert.strictEqual(res.getStatusCode(), 400);
+      assert.strictEqual(res.getBody().success, false);
+    });
+
+    it('rejects sending notification with empty message with 400', async () => {
+      const { req, res } = createMockHttp({
+        body: { title: 'Notice', message: '   ' },
+        user: { id: 'admin_1', role: 'admin' }
+      });
+
+      await notificationController.sendNotification(req, res);
+
+      assert.strictEqual(res.getStatusCode(), 400);
+      assert.strictEqual(res.getBody().success, false);
+    });
+
+    it('rejects negative duty pay rates with 400', async () => {
+      const { req, res } = createMockHttp({
+        body: { supervisorRate: -100, invigilatorRate: 1000 },
+        user: { id: 'admin_1', role: 'admin' }
+      });
+
+      await dutyPayController.updatePayRates(req, res);
+
+      assert.strictEqual(res.getStatusCode(), 400);
+      assert.strictEqual(res.getBody().success, false);
     });
   });
 

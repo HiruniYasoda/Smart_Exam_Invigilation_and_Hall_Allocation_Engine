@@ -214,6 +214,30 @@ describe('Allocation Service - Unit Tests', () => {
       const { warnings } = autoAllocateStaff(bigExam, limitedStaff);
       assert.strictEqual(warnings.length > 0, true);
     });
+
+    it('assigns non-conflicting halls meeting capacity for concurrent subjects', () => {
+      const halls = [
+        { _id: 'h1', name: 'Small Hall', capacity: 40, bookings: [] },
+        { _id: 'h2', name: 'Main Hall', capacity: 120, bookings: [] }
+      ];
+      const parallelExams = [
+        {
+          _id: 'exam_3',
+          date: '2026-12-12',
+          startTime: '09:00',
+          endTime: '11:00',
+          subjects: [
+            { code: 'CS102', name: 'OOP', faculty: 'Computing', studentCount: 35, setterId: 'p1' },
+            { code: 'CS103', name: 'Networks', faculty: 'Computing', studentCount: 35, setterId: 's1' }
+          ]
+        }
+      ];
+
+      const { assignments } = autoAllocateStaff(parallelExams, mockStaff, halls);
+      assert.strictEqual(assignments.length, 2);
+      assert.strictEqual(assignments[0].hall, 'Small Hall');
+      assert.strictEqual(assignments[1].hall, 'Main Hall');
+    });
   });
 
 });
