@@ -15,6 +15,7 @@ const Lecturer = require('../models/Lecturer');
 const Hall = require('../models/Hall');
 const Exam = require('../models/Exam');
 const AssignmentRequest = require('../models/AssignmentRequest');
+const PayRate = require('../models/PayRate');
 const { hashPassword } = require('../utils/passwordUtils');
 
 async function seedDatabase() {
@@ -29,6 +30,7 @@ async function seedDatabase() {
     await Hall.deleteMany({});
     await Exam.deleteMany({});
     await AssignmentRequest.deleteMany({});
+    await PayRate.deleteMany({});
     console.log('Cleared existing records.');
 
     // 2. Seed Users
@@ -72,13 +74,20 @@ async function seedDatabase() {
     ]);
     console.log(`Seeded ${users.length} user accounts.`);
 
-    // 3. Seed Lecturers with Seniority Ranks
+    // 3. Seed Lecturers with Seniority Ranks — link userId by matching email
+    // Build a lookup map: email → User._id for lecturer-role users
+    const lecturerUserMap = {};
+    for (const u of users) {
+      if (u.role === 'lecturer') lecturerUserMap[u.email] = u._id;
+    }
+
     const lecturers = await Lecturer.create([
       {
         name: 'Prof. K. Silva',
         email: 'silva@susl.ac.lk',
         department: 'Computing',
         rank: 'Professor',
+        userId: lecturerUserMap['silva@susl.ac.lk'],
         dutyCount: 2,
         availability: [
           { date: '2026-12-10', startTime: '08:00', endTime: '17:00' },
@@ -90,6 +99,7 @@ async function seedDatabase() {
         email: 'fernando@susl.ac.lk',
         department: 'Computing',
         rank: 'Senior Lecturer Gr (I)',
+        userId: lecturerUserMap['fernando@susl.ac.lk'],
         dutyCount: 3,
         availability: [
           { date: '2026-12-10', startTime: '08:00', endTime: '17:00' }
@@ -110,6 +120,7 @@ async function seedDatabase() {
         email: 'kumara@susl.ac.lk',
         department: 'Computing',
         rank: 'Lecturer',
+        userId: lecturerUserMap['kumara@susl.ac.lk'],
         dutyCount: 4,
         availability: [
           { date: '2026-12-10', startTime: '08:00', endTime: '17:00' }
@@ -203,6 +214,16 @@ async function seedDatabase() {
       }
     ]);
     console.log(`Seeded ${exams.length} examination sessions with multi-subject requirements.`);
+
+    // 6. Seed default pay rates
+    const adminUser = users.find(u => u.role === 'admin');
+    await PayRate.create({
+      supervisorRate: 1500,
+      invigilatorRate: 1000,
+      currency: 'LKR',
+      updatedBy: adminUser._id
+    });
+    console.log('Seeded default duty pay rates (Supervisor: 1500 LKR, Invigilator: 1000 LKR).');
 
     console.log('\n=========================================');
     console.log('DATABASE SEED COMPLETED SUCCESSFULLY');
