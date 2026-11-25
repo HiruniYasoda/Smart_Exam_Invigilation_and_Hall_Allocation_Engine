@@ -8,6 +8,7 @@ const examController = require('../controllers/examController');
 const lecturerController = require('../controllers/lecturerController');
 const hallController = require('../controllers/hallController');
 const allocationController = require('../controllers/allocationController');
+const notificationController = require('../controllers/notificationController');
 
 // Middlewares
 const { authenticate, authorizeRoles } = require('../middlewares/auth');
@@ -146,5 +147,13 @@ router.get('/lecturers/available', authenticate, lecturerController.getAvailable
 router.post('/lecturers/assign', authenticate, authorizeRoles('admin'), lecturerController.assignLecturer);
 router.post('/lecturers/unassign', authenticate, authorizeRoles('admin'), lecturerController.unassignLecturer);
 router.get('/lecturers/schedule', authenticate, authorizeRoles('lecturer', 'admin'), lecturerController.getLecturerExamSchedule);
+
+// ==========================================
+// Notification Routes
+// ==========================================
+router.post('/notifications/send', authenticate, authorizeRoles('admin'), notificationController.sendNotification);
+router.get('/notifications/admin', authenticate, authorizeRoles('admin'), notificationController.getAllNotificationsAdmin);
+router.get('/notifications/my', authenticate, notificationController.getMyNotifications);
+router.patch('/notifications/:id/read', authenticate, notificationController.markAsRead);
 
 module.exports = router;
