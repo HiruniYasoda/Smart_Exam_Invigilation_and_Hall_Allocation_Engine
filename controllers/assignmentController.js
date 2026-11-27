@@ -346,6 +346,27 @@ const autoAssignInvigilators = async (req, res) => {
 
     await Promise.all(exams.map(e => e.save()));
 
+    // Notify each assigned lecturer of their new duty
+    for (const alloc of assignments) {
+      const allStaffIds = [
+        ...alloc.supervisorIds.map(id => ({ id, role: 'Supervisor' })),
+        ...alloc.invigilatorIds.map(id => ({ id, role: 'Invigilator' }))
+      ];
+
+      for (const { id, role } of allStaffIds) {
+        try {
+          // Resolve Lecturer._id → User.userId for notification targeting
+          const lecturerDoc = await Lecturer.findById(id).select('userId name').lean();
+          if (lecturerDoc?.userId) {
+            const msg = `You have been assigned as ${role} for ${alloc.subjectName} (${alloc.subjectCode}) on ${alloc.date} ${alloc.startTime}–${alloc.endTime}${alloc.hall ? ` at ${alloc.hall}` : ''}.`;
+            await createNotification(lecturerDoc.userId, msg, 'duty', 'Exam Duty Assigned');
+          }
+        } catch (e) {
+          console.error('Lecturer duty notification error:', e.message);
+        }
+      }
+    }
+
     // Notify administrator of any staffing shortages
     if (warnings.length > 0) {
       for (const warning of warnings) {
